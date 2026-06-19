@@ -1,6 +1,8 @@
 # GitHub Promoter
 
-open-im 推广工具 — 从 GitHub 采集用户邮箱，发送推广邮件。
+GitHub 开源项目推广工具 — 从 GitHub 采集目标用户邮箱，自动发送个性化推广邮件。
+
+适用于所有开源项目的推广：你的工具、库、框架、插件等等。从相关仓库的 stargazer 中找到你的目标用户，用随机生成的个性化邮件推广你的项目。
 
 ## 功能
 
@@ -12,6 +14,7 @@ open-im 推广工具 — 从 GitHub 采集用户邮箱，发送推广邮件。
 - **速率限制感知**：自动检测 GitHub API 配额，动态调整请求速度
 - **断点续采**：采集过程中断后可从上次位置继续
 - **Topic 搜索**：按 GitHub Topic 自动发现目标仓库
+- **通用模板**：邮件内容自动使用你配置的产品信息
 
 ## 快速开始
 
@@ -40,7 +43,7 @@ npm run send
 
 ### 配置文件（推荐）
 
-复制 `config/config.yaml.example` 为 `config/config.yaml`：
+复制 `config/config.yaml.example` 为 `config/config.yaml`，然后修改：
 
 ```yaml
 # 多发件人配置
@@ -52,28 +55,33 @@ senders:
     password: "YOUR_APP_PASSWORD"
     daily_limit: 200
 
-# 发送策略
-settings:
-  email_interval_min: 180    # 最小间隔（秒）
-  email_interval_max: 420    # 最大间隔（秒）
-  timezone: "Asia/Shanghai"
-
-# 采集配置
+# 采集配置 - 根据你的项目填写相关 topic 和仓库
 harvest:
   topics:
-    - "ai-tool"
-    - "claude"
-    - "llm"
+    - "ai-tool"           # 与你项目相关的 topic
+    - "react"             # 例如你是 React 库就填 react
+    - "vue"               # 例如你是 Vue 库就填 vue
   target_repos:
-    - "anthropics/claude-code"
-    - "lobehub/lobe-chat"
-  per_repo_limit: 100
+    - "facebook/react"    # 相关仓库的 stargazer 是你的目标用户
+    - "vuejs/core"
 
-# 调试
-debug:
-  dry_run: false
-  log_level: "info"
+# 推广内容 - 必填！
+email_content:
+  product_name: "My Awesome Project"
+  product_description: "一个让 React 开发更简单的工具"
+  github_repo_url: "https://github.com/your-username/your-project"
 ```
+
+### 邮件模板生成
+
+Spintax 引擎会自动将你的产品信息填入邮件模板，生成 10 万+ 种不同组合：
+
+- **主题**：10 种变化
+- **问候**：8 种变化
+- **开场白**：10 种变化
+- **产品介绍**：10 种变化（自动使用你的 product_name 和 description）
+- **结尾**：8 种变化
+- **签名**：8 种变化
 
 ### 环境变量
 
@@ -139,6 +147,38 @@ github-promoter/
 ├── tsconfig.json
 ├── vitest.config.ts
 └── README.md
+```
+
+## 使用场景
+
+### 推广你的开源库
+```yaml
+harvest:
+  topics: ["react", "typescript", "frontend"]
+  target_repos: ["facebook/react", "microsoft/typescript"]
+email_content:
+  product_name: "My React Component Library"
+  product_description: "一套高质量的 React UI 组件"
+```
+
+### 推广你的开发工具
+```yaml
+harvest:
+  topics: ["cli", "developer-tools", "productivity"]
+  target_repos: ["vercel/next.js", "nuxt/nuxt"]
+email_content:
+  product_name: "DevTool Pro"
+  product_description: "提升开发效率的命令行工具"
+```
+
+### 推广你的 AI 项目
+```yaml
+harvest:
+  topics: ["ai", "llm", "machine-learning"]
+  target_repos: ["openai/openai-python", "anthropics/anthropic-sdk-python"]
+email_content:
+  product_name: "AI Code Assistant"
+  product_description: "基于 LLM 的智能代码补全工具"
 ```
 
 ## 合法性

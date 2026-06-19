@@ -39,6 +39,7 @@ settings:
 # =============================================
 harvest:
   # 按 GitHub Topic 搜索目标仓库
+  # 根据你要推广的项目类型填写相关 topic
   topics:
     - "ai-tool"
     - "claude"
@@ -47,15 +48,12 @@ harvest:
     - "open-source"
 
   # 补充的固定仓库列表（与 topic 搜索结果合并）
+  # 填写与你项目相关的仓库，从这些仓库的 stargazer 中采集邮箱
   target_repos:
     - "anthropics/claude-code"
-    - "anthropics/claude-code-wechat-channel"
-    - "nicepkg/gpt-runner"
-    - "chatanywhere/GPT_API_free"
-    - "labring/FastGPT"
     - "lobehub/lobe-chat"
-    - "chatgpt-web/chatgpt-web"
-    - "yokingma/searchgpt"
+    - "labring/FastGPT"
+    # 添加更多相关仓库...
 
   # 每个仓库最多采集的 stargazer 数量
   per_repo_limit: 100
@@ -64,12 +62,17 @@ harvest:
   rate_limit_threshold: 100
 
 # =============================================
-# 推广内容（用于邮件模板）
+# 推广内容配置（必填）
 # =============================================
 email_content:
-  product_name: "open-im"
-  product_description: "把 Claude Code 接入微信、Telegram 等 IM 平台的开源工具"
-  github_repo_url: "https://github.com/wu529778790/open-im"
+  # 你的项目名称
+  product_name: "Your Project"
+
+  # 项目简介（一句话描述）
+  product_description: "一句话介绍你的项目"
+
+  # 项目 GitHub 地址
+  github_repo_url: "https://github.com/your-username/your-project"
 
 # =============================================
 # 调试设置

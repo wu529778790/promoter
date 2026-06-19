@@ -5,7 +5,33 @@
  * 主题 × 问候 × 开场 × 价值点 × 结尾 × 签名 = 100,000+ 种组合
  *
  * 策略：纯文本、无链接、无 HTML（避免反垃圾引擎扫描）
+ *
+ * 使用方法：
+ *   1. 在 config/config.yaml 中配置你的产品信息
+ *   2. 调用 generateEmail() 生成随机邮件内容
+ *   3. 生成的内容会自动使用你配置的产品名称和描述
  */
+
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// ============================================================
+// 配置接口
+// ============================================================
+
+interface EmailContentConfig {
+  product_name: string;
+  product_description: string;
+  github_repo_url: string;
+}
+
+// ============================================================
+// Spintax 变量库（通用版本）
+// ============================================================
 
 interface SpintaxPool {
   subjects: string[];
@@ -17,18 +43,18 @@ interface SpintaxPool {
 }
 
 const SPINTAX: SpintaxPool = {
-  // 邮件主题（10 个变体）
+  // 邮件主题（10 个变体 - 通用）
   subjects: [
-    '🚀 发现一个超强的 AI 编程助手',
-    '🔧 Claude Code + 微信 = ？',
-    '💡 一个让手机写代码的开源工具',
-    '🤖 AI 编程的新玩法',
-    '📱 手机发消息，电脑写代码',
-    '🌟 开源工具推荐：AI + IM',
-    '🎯 开发者必备：远程 AI 编程',
-    '💬 通过微信使用 Claude Code',
-    '🚀 AI 编程效率提升 10 倍',
-    '🔧 开源项目推荐（AI 编程方向）',
+    '🚀 一个值得看看的开源项目',
+    '💡 发现一个不错的工具，推荐给你',
+    '🔧 开源项目推荐',
+    '🌟 一个有趣的开源项目',
+    '🎯 开发者工具推荐',
+    '📱 一个提升效率的开源工具',
+    '🚀 开源新项目推荐',
+    '💡 开发者值得一试的工具',
+    '🔧 发现一个实用的开源项目',
+    '🌟 推荐一个 GitHub 上的好项目',
   ],
 
   // 问候语（8 个变体）
@@ -43,37 +69,37 @@ const SPINTAX: SpintaxPool = {
     'Hi {name}',
   ],
 
-  // 开场白（10 个变体）
+  // 开场白（10 个变体 - 通用）
   openings: [
     '我在 GitHub 上看到了你的项目，印象很深。',
-    '看到你对 AI 编程工具很感兴趣。',
-    '注意到你在关注一些 AI 相关的开源项目。',
-    '最近在探索 AI 编程工具，发现了一个很有意思的项目。',
+    '看到你在关注一些开源项目。',
+    '注意到你对开源软件很感兴趣。',
+    '最近在探索一些开源工具，发现了一个很有意思的项目。',
     '作为一个开发者，你可能会对这个感兴趣。',
-    '在 GitHub 上看到你 star 了一些 AI 项目，推荐一个给你。',
-    '看到你在用 AI 工具辅助开发，这个项目你可能会喜欢。',
-    '作为一个同样关注 AI 编程的人，想跟你分享一个工具。',
-    '在研究 AI 编程工具时发现了这个开源项目。',
+    '在 GitHub 上看到你 star 了一些项目，推荐一个给你。',
+    '看到你在用各种开发工具，这个项目你可能会喜欢。',
+    '作为一个同样关注开源的人，想跟你分享一个工具。',
+    '在研究开源项目时发现了这个。',
     '你的 GitHub 活动显示你对新技术很感兴趣。',
   ],
 
-  // 价值点（10 个变体）
+  // 价值点（10 个变体 - 通用，使用配置中的产品名）
   valueProps: [
-    'open-im 是一个开源工具，可以把 Claude Code 接入微信、Telegram 等 IM 平台。手机发条消息，电脑上就写好代码。',
-    'open-im 让你在手机上直接跟 Claude Code 对话，代码自动在电脑上写好。支持微信、Telegram 等 7 个 IM 平台。',
-    '通过 open-im，你可以在微信里直接使用 Claude Code。手机发消息，电脑写代码，效率翻倍。',
-    'open-im 把 Claude Code 变成了你的微信好友。随时随地用手机给 AI 发指令，代码在电脑上自动生成。',
-    'open-im 是一个把 AI 编程助手接入即时通讯的工具。你在微信发消息，Claude Code 就在电脑上帮你写代码。',
-    '用 open-im，你可以通过 Telegram 直接调用 Claude Code。手机就是你的 AI 编程遥控器。',
-    'open-im 支持 Claude、Codex、CodeBuddy 等多个 AI 编程助手。通过微信、Telegram 等 7 个平台随时随地编程。',
-    '开源项目 open-im 解决了一个痛点：如何在手机上方便地使用 AI 编程助手。支持多个 IM 平台。',
-    'open-im 让 AI 编程不再受设备限制。手机发指令，电脑写代码，支持微信和 Telegram 等平台。',
-    '想象一下：在微信里发一条消息，Claude Code 就在你的电脑上开始写代码。open-im 让这成为现实。',
+    '{product} 是一个开源项目，{description}。完全免费，欢迎体验。',
+    '{product} {description}。如果你也感兴趣，可以看看。',
+    '推荐 {product}，{description}。完全开源，欢迎 Star。',
+    '{product} 解决了一个痛点：{description}。值得一看。',
+    '{product} 是一个值得关注的开源项目，{description}。',
+    '如果你对 {description} 感兴趣，{product} 值得一试。',
+    '{product}，{description}。欢迎体验和反馈。',
+    '发现 {product}，{description}。完全免费开源。',
+    '{product} 是一个不错的开源选择，{description}。',
+    '推荐 {product}，{description}。开源项目，欢迎贡献。',
   ],
 
-  // 结尾（8 个变体）
+  // 结尾（8 个变体 - 通用）
   closings: [
-    '如果你也在用 AI 编程工具，欢迎试试。有问题可以提 Issue。',
+    '如果你感兴趣，欢迎看看。有问题可以提 Issue。',
     '感兴趣的话可以看看。完全开源，欢迎 Star 和贡献。',
     '这是一个完全开源的项目，欢迎体验和反馈。',
     '如果觉得有用，欢迎给个 Star 支持一下。',
@@ -83,18 +109,22 @@ const SPINTAX: SpintaxPool = {
     '希望对你有帮助。有问题随时交流。',
   ],
 
-  // 签名（8 个变体）
+  // 签名（8 个变体 - 通用）
   signatures: [
-    'Best,\nopen-im 团队',
-    'Thanks,\nopen-im 开发者',
-    'Best regards,\nopen-im',
-    'Cheers,\nopen-im',
-    '祝好,\nopen-im 团队',
-    '谢谢,\nopen-im 开发者',
-    '此致,\nopen-im',
-    'Best,\n一个 AI 编程爱好者',
+    'Best,\n项目维护者',
+    'Thanks,\n开发者',
+    'Best regards,\n开源爱好者',
+    'Cheers,\n一个开发者',
+    '祝好,\n项目团队',
+    '谢谢,\n开发者',
+    '此致,\n开源社区',
+    'Best,\n一个 fellow developer',
   ],
 };
+
+// ============================================================
+// 工具函数
+// ============================================================
 
 /**
  * 从数组中随机选择一个元素
@@ -108,10 +138,41 @@ function pickRandom<T>(arr: T[]): T {
  */
 export function sanitizeName(name: string): string {
   if (!name) return 'there';
-  // 移除特殊字符和数字，保留字母和空格
+  // 移除特殊字符和数字，保留字母、空格和中文
   const cleaned = name.replace(/[^a-zA-Z\s一-鿿]/g, '').trim();
   return cleaned || 'there';
 }
+
+/**
+ * 加载配置中的产品信息
+ */
+function loadProductConfig(): EmailContentConfig {
+  // 尝试加载 config.yaml
+  const configPath = join(__dirname, '..', 'config', 'config.yaml');
+  if (existsSync(configPath)) {
+    try {
+      const yaml = require('yaml');
+      const raw = readFileSync(configPath, 'utf-8');
+      const config = yaml.parse(raw);
+      if (config?.email_content) {
+        return config.email_content;
+      }
+    } catch {
+      // 忽略
+    }
+  }
+
+  // 默认值
+  return {
+    product_name: 'Your Project',
+    product_description: '一个不错的开源项目',
+    github_repo_url: 'https://github.com',
+  };
+}
+
+// ============================================================
+// 导出函数
+// ============================================================
 
 /**
  * 生成随机邮件主题
@@ -122,13 +183,22 @@ export function generateSubject(): string {
 
 /**
  * 生成随机邮件正文
+ *
+ * @param recipientName - 收件人名称
+ * @param productConfig - 产品配置（可选，默认从 config.yaml 读取）
  */
-export function generateBody(recipientName?: string): string {
+export function generateBody(
+  recipientName?: string,
+  productConfig?: EmailContentConfig
+): string {
   const name = sanitizeName(recipientName || '');
+  const product = productConfig || loadProductConfig();
 
   const greeting = pickRandom(SPINTAX.greetings).replace('{name}', name || 'there');
   const opening = pickRandom(SPINTAX.openings);
-  const valueProp = pickRandom(SPINTAX.valueProps);
+  const valueProp = pickRandom(SPINTAX.valueProps)
+    .replace('{product}', product.product_name)
+    .replace('{description}', product.product_description);
   const closing = pickRandom(SPINTAX.closings);
   const signature = pickRandom(SPINTAX.signatures);
 
@@ -137,11 +207,17 @@ export function generateBody(recipientName?: string): string {
 
 /**
  * 生成完整的随机邮件内容（主题 + 正文）
+ *
+ * @param recipientName - 收件人名称
+ * @param productConfig - 产品配置（可选）
  */
-export function generateEmail(recipientName?: string): { subject: string; text: string } {
+export function generateEmail(
+  recipientName?: string,
+  productConfig?: EmailContentConfig
+): { subject: string; text: string } {
   return {
     subject: generateSubject(),
-    text: generateBody(recipientName),
+    text: generateBody(recipientName, productConfig),
   };
 }
 

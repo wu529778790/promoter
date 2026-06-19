@@ -73,20 +73,15 @@ const DEFAULT_CONFIG: AppConfig = {
     topics: ['ai-tool', 'claude', 'llm'],
     target_repos: [
       'anthropics/claude-code',
-      'anthropics/claude-code-wechat-channel',
-      'nicepkg/gpt-runner',
-      'chatanywhere/GPT_API_free',
-      'labring/FastGPT',
       'lobehub/lobe-chat',
-      'chatgpt-web/chatgpt-web',
-      'yokingma/searchgpt',
+      'labring/FastGPT',
     ],
     per_repo_limit: 100,
     rate_limit_threshold: 100,
   },
   email_content: {
-    product_name: 'open-im',
-    product_description: '把 Claude Code 接入微信、Telegram 等 IM 平台的开源工具',
+    product_name: 'Your Project',
+    product_description: '一个不错的开源项目',
     github_repo_url: 'https://github.com/wu529778790/open-im',
   },
   debug: {

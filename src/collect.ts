@@ -7,11 +7,15 @@
 
 import { Octokit } from '@octokit/rest';
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { AppConfig } from './config.js';
 
-const DATA_DIR = './data';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const DATA_DIR = join(__dirname, '..', 'data');
 const EMAILS_FILE = join(DATA_DIR, 'emails.csv');
-const PROGRESS_FILE = join(DATA_DIR, 'progress.json');
+const PROGRESS_FILE = join(DATA_DIR, 'collect_progress.json');
 
 interface GitHubEmail {
   email: string;
@@ -20,69 +24,195 @@ interface GitHubEmail {
   source: string;
 }
 
-// 要搜索的仓库列表（与 open-im 相关的项目）
-const TARGET_REPOS = [
-  'anthropics/claude-code',
-  'anthropics/claude-code-wechat-channel',
-  'nicepkg/gpt-runner',
-  'chatanywhere/GPT_API_free',
-  'labring/FastGPT',
-  'lobehub/lobe-chat',
-  'chatgpt-web/chatgpt-web',
-  'yokingma/searchgpt',
-];
+interface CollectProgress {
+  processedRepos: string[];
+  totalEmails: number;
+  timestamp: string;
+}
 
-export async function collectEmails() {
+// ============================================================
+// 主入口
+// ============================================================
+
+export async function collectEmails(config: AppConfig, flags: string[] = []) {
+  const resume = flags.includes('--resume');
+  const statusOnly = flags.includes('--status');
+  const dryRun = flags.includes('--dry-run') || config.debug.dry_run;
+
   const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
 
+  // 确保数据目录存在
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+
+  // --status 模式：只显示状态
+  if (statusOnly) {
+    showStatus();
+    return;
+  }
+
   const allEmails: Map<string, GitHubEmail> = new Map();
   let processedUsers = 0;
 
-  console.log('🚀 开始采集 GitHub 用户邮箱...\n');
+  // 加载已有邮箱
+  const existingEmails = loadExistingEmails();
+  for (const [email, data] of existingEmails) {
+    allEmails.set(email, data);
+  }
+  console.log(`📋 已有 ${existingEmails.size} 个邮箱`);
 
-  for (const repo of TARGET_REPOS) {
+  // 构建目标仓库列表（固定仓库 + topic 搜索）
+  const fixedRepos = config.harvest.target_repos;
+  const topicRepos = await searchReposByTopic(octokit, config, dryRun);
+  const allRepos = [...new Set([...fixedRepos, ...topicRepos])];
+
+  // 断点续采：跳过已处理的仓库
+  let processedRepos: string[] = [];
+  if (resume) {
+    const progress = loadProgress();
+    processedRepos = progress.processedRepos;
+    if (processedRepos.length > 0) {
+      console.log(`🔄 断点续采: 已跳过 ${processedRepos.length} 个仓库`);
+    }
+  }
+
+  const reposToProcess = allRepos.filter(r => !processedRepos.includes(r));
+  console.log(`🚀 待扫描仓库: ${reposToProcess.length} 个 (共 ${allRepos.length} 个)\n`);
+
+  // 检查速率限制
+  await checkRateLimit(octokit);
+
+  let currentProgress: CollectProgress = {
+    processedRepos,
+    totalEmails: allEmails.size,
+    timestamp: new Date().toISOString(),
+  };
+
+  for (const repo of reposToProcess) {
     console.log(`📦 扫描仓库: ${repo}`);
 
     try {
-      // 获取 stargazers
-      const stargazers = await octokit.repos.listStargazers({
-        owner: repo.split('/')[0],
-        repo: repo.split('/')[1],
-        per_page: 100,
-      });
+      const [owner, repoName] = repo.split('/');
+      const limit = config.harvest.per_repo_limit;
 
-      console.log(`   找到 ${stargazers.data.length} 个 stargazer`);
+      // 分页获取 stargazers
+      let page = 1;
+      let totalFetched = 0;
 
-      for (const user of stargazers.data) {
-        processedUsers++;
-        if (processedUsers % 10 === 0) {
-          console.log(`   已处理 ${processedUsers} 个用户...`);
+      while (totalFetched < limit) {
+        const perPage = Math.min(100, limit - totalFetched);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const stargazers = await (octokit.repos as any).listStargazers({
+          owner,
+          repo: repoName,
+          per_page: perPage,
+          page,
+        });
+
+        if (stargazers.data.length === 0) break;
+
+        console.log(`   第 ${page} 页: ${stargazers.data.length} 个 stargazer`);
+
+        if (!dryRun) {
+          for (const user of stargazers.data) {
+            processedUsers++;
+            if (processedUsers % 10 === 0) {
+              console.log(`   已处理 ${processedUsers} 个用户...`);
+            }
+
+            const emailData = await getUserEmail(octokit, user.login, repo);
+            if (emailData) {
+              allEmails.set(emailData.email, emailData);
+            }
+          }
         }
 
-        // 获取用户的公开邮箱
-        const email = await getUserEmail(octokit, user.login);
-        if (email) {
-          allEmails.set(email, {
-            email,
-            username: user.login,
-            name: user.name || user.login,
-            source: `starred:${repo}`,
-          });
-        }
+        totalFetched += stargazers.data.length;
+        page++;
+
+        if (stargazers.data.length < perPage) break;
+        await dynamicDelay(octokit, config.harvest.rate_limit_threshold);
       }
+
+      // 保存此仓库的进度
+      currentProgress.processedRepos.push(repo);
+      currentProgress.totalEmails = allEmails.size;
+      currentProgress.timestamp = new Date().toISOString();
+      if (!dryRun) saveProgress(currentProgress);
+
+      console.log(`   ✅ ${repo} 完成，当前共 ${allEmails.size} 个邮箱`);
     } catch (error) {
       console.error(`   ❌ 扫描 ${repo} 失败:`, error);
     }
   }
 
   // 保存结果
-  saveEmails(Array.from(allEmails.values()));
+  if (!dryRun) {
+    saveEmails(Array.from(allEmails.values()));
+  }
   console.log(`\n✅ 采集完成: ${allEmails.size} 个邮箱`);
 }
 
-async function getUserEmail(octokit: Octokit, username: string): Promise<string | null> {
+// ============================================================
+// Topic 搜索
+// ============================================================
+
+/**
+ * 按 GitHub Topic 搜索仓库
+ */
+async function searchReposByTopic(
+  octokit: Octokit,
+  config: AppConfig,
+  dryRun: boolean
+): Promise<string[]> {
+  const topics = config.harvest.topics;
+  if (topics.length === 0) return [];
+
+  console.log(`🔍 按 Topic 搜索仓库: ${topics.join(', ')}`);
+  const foundRepos: string[] = [];
+
+  for (const topic of topics) {
+    try {
+      const query = `topic:${topic} stars:>100`;
+      const results = await octokit.search.repos({
+        q: query,
+        sort: 'stars',
+        order: 'desc',
+        per_page: 20,
+      });
+
+      for (const repo of results.data.items) {
+        const fullName = repo.full_name;
+        if (!foundRepos.includes(fullName)) {
+          foundRepos.push(fullName);
+        }
+      }
+
+      console.log(`   topic:${topic} → ${results.data.items.length} 个仓库`);
+
+      // 搜索 API 限制：30 次/分钟
+      if (!dryRun) {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+    } catch (error) {
+      console.error(`   ❌ 搜索 topic:${topic} 失败:`, error);
+    }
+  }
+
+  console.log(`   共发现 ${foundRepos.length} 个仓库\n`);
+  return foundRepos;
+}
+
+// ============================================================
+// 邮箱获取
+// ============================================================
+
+async function getUserEmail(
+  octokit: Octokit,
+  username: string,
+  source: string
+): Promise<GitHubEmail | null> {
   try {
     // 方法 1：通过用户公开事件获取邮箱
     const events = await octokit.activity.listPublicEventsForUser({
@@ -91,11 +221,17 @@ async function getUserEmail(octokit: Octokit, username: string): Promise<string 
     });
 
     for (const event of events.data) {
-      if (event.type === 'PushEvent' && event.payload?.commits) {
-        for (const commit of event.payload.commits) {
+      const payload = event.payload as any;
+      if (event.type === 'PushEvent' && payload?.commits) {
+        for (const commit of payload.commits) {
           const author = commit.author;
           if (author?.email && !author.email.includes('noreply')) {
-            return author.email;
+            return {
+              email: author.email,
+              username,
+              name: username,
+              source: `starred:${source}`,
+            };
           }
         }
       }
@@ -104,13 +240,93 @@ async function getUserEmail(octokit: Octokit, username: string): Promise<string 
     // 方法 2：检查用户公开邮箱
     const user = await octokit.users.getByUsername({ username });
     if (user.data.email && !user.data.email.includes('noreply')) {
-      return user.data.email;
+      return {
+        email: user.data.email,
+        username,
+        name: user.data.name || username,
+        source: `starred:${source}`,
+      };
     }
 
     return null;
   } catch {
     return null;
   }
+}
+
+// ============================================================
+// 速率限制
+// ============================================================
+
+async function dynamicDelay(octokit: Octokit, threshold: number): Promise<void> {
+  try {
+    const rateLimit = await octokit.rateLimit.get();
+    const remaining = rateLimit.data.resources.core.remaining;
+
+    let delay: number;
+    if (remaining > 4000) {
+      delay = 500;
+    } else if (remaining > 2000) {
+      delay = 1000;
+    } else if (remaining > threshold) {
+      delay = 2000;
+    } else {
+      delay = 3000;
+      console.log(`   ⚠️ API 配额较低 (${remaining} 剩余)，放慢请求速度`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+  } catch {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
+async function checkRateLimit(octokit: Octokit): Promise<void> {
+  try {
+    const rateLimit = await octokit.rateLimit.get();
+    const remaining = rateLimit.data.resources.core.remaining;
+    const resetAt = new Date(rateLimit.data.resources.core.reset * 1000);
+
+    if (remaining < 100) {
+      console.log(`⚠️ GitHub API 配额不足: ${remaining} 剩余`);
+      console.log(`   配额重置时间: ${resetAt.toLocaleString()}`);
+
+      const waitMs = resetAt.getTime() - Date.now();
+      if (waitMs > 0 && waitMs < 60 * 60 * 1000) {
+        console.log(`   等待配额重置 (${Math.ceil(waitMs / 60000)} 分钟)...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs + 5000));
+      }
+    } else {
+      console.log(`📊 GitHub API 配额: ${remaining} 剩余`);
+    }
+  } catch {
+    // 忽略
+  }
+}
+
+// ============================================================
+// 数据持久化
+// ============================================================
+
+function loadExistingEmails(): Map<string, GitHubEmail> {
+  const emails = new Map<string, GitHubEmail>();
+  if (!existsSync(EMAILS_FILE)) return emails;
+
+  try {
+    const csv = readFileSync(EMAILS_FILE, 'utf-8');
+    const lines = csv.split('\n').slice(1);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const [email, username, name, source] = line.split(',').map(s => s.replace(/"/g, '').trim());
+      if (email) {
+        emails.set(email, { email, username, name, source });
+      }
+    }
+  } catch {
+    // 忽略
+  }
+
+  return emails;
 }
 
 function saveEmails(emails: GitHubEmail[]) {
@@ -125,6 +341,38 @@ function saveEmails(emails: GitHubEmail[]) {
   console.log(`💾 邮箱已保存到 ${EMAILS_FILE}`);
 }
 
-function dirname(path: string) {
-  return path.substring(0, path.lastIndexOf('/'));
+function loadProgress(): CollectProgress {
+  if (!existsSync(PROGRESS_FILE)) {
+    return { processedRepos: [], totalEmails: 0, timestamp: '' };
+  }
+  try {
+    return JSON.parse(readFileSync(PROGRESS_FILE, 'utf-8'));
+  } catch {
+    return { processedRepos: [], totalEmails: 0, timestamp: '' };
+  }
+}
+
+function saveProgress(progress: CollectProgress) {
+  writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2));
+}
+
+function showStatus() {
+  console.log('📊 采集状态:\n');
+
+  // 邮箱数量
+  if (existsSync(EMAILS_FILE)) {
+    const csv = readFileSync(EMAILS_FILE, 'utf-8');
+    const count = csv.split('\n').length - 1; // 减去标题行
+    console.log(`   📧 已采集邮箱: ${count} 个`);
+    console.log(`   📁 文件: ${EMAILS_FILE}`);
+  } else {
+    console.log('   📧 尚未采集邮箱');
+  }
+
+  // 进度信息
+  if (existsSync(PROGRESS_FILE)) {
+    const progress = loadProgress();
+    console.log(`   📦 已处理仓库: ${progress.processedRepos.length} 个`);
+    console.log(`   🕐 上次更新: ${progress.timestamp}`);
+  }
 }

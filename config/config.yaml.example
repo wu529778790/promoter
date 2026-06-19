@@ -1,0 +1,79 @@
+# =============================================
+# GitHub Promoter 配置文件模板
+# =============================================
+# 请复制此文件为 config.yaml 并填写真实配置
+# cp config/config.yaml.example config/config.yaml
+
+# =============================================
+# 发件邮箱配置（支持多个）
+# =============================================
+senders:
+  - name: "Your Name"
+    email: "your_email@qq.com"
+    smtp_server: "smtp.qq.com"
+    smtp_port: 465
+    password: "YOUR_APP_PASSWORD"
+    daily_limit: 200
+
+  # 可添加更多发件人（并行发送，提高速度）
+  # - name: "Another Sender"
+  #   email: "another@gmail.com"
+  #   smtp_server: "smtp.gmail.com"
+  #   smtp_port: 587
+  #   password: "YOUR_GMAIL_APP_PASSWORD"
+  #   daily_limit: 500
+
+# =============================================
+# 发送策略
+# =============================================
+settings:
+  # 邮件间隔（防垃圾邮件检测）
+  email_interval_min: 180    # 最小间隔（秒），默认 3 分钟
+  email_interval_max: 420    # 最大间隔（秒），默认 7 分钟
+
+  # 时区（用于每日配额重置）
+  timezone: "Asia/Shanghai"
+
+# =============================================
+# 邮箱采集配置
+# =============================================
+harvest:
+  # 按 GitHub Topic 搜索目标仓库
+  topics:
+    - "ai-tool"
+    - "claude"
+    - "llm"
+    - "chatgpt"
+    - "open-source"
+
+  # 补充的固定仓库列表（与 topic 搜索结果合并）
+  target_repos:
+    - "anthropics/claude-code"
+    - "anthropics/claude-code-wechat-channel"
+    - "nicepkg/gpt-runner"
+    - "chatanywhere/GPT_API_free"
+    - "labring/FastGPT"
+    - "lobehub/lobe-chat"
+    - "chatgpt-web/chatgpt-web"
+    - "yokingma/searchgpt"
+
+  # 每个仓库最多采集的 stargazer 数量
+  per_repo_limit: 100
+
+  # GitHub API 速率限制阈值（低于此值时放慢请求）
+  rate_limit_threshold: 100
+
+# =============================================
+# 推广内容（用于邮件模板）
+# =============================================
+email_content:
+  product_name: "open-im"
+  product_description: "把 Claude Code 接入微信、Telegram 等 IM 平台的开源工具"
+  github_repo_url: "https://github.com/wu529778790/open-im"
+
+# =============================================
+# 调试设置
+# =============================================
+debug:
+  dry_run: false
+  log_level: "info"    # debug / info / warn / error

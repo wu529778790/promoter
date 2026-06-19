@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "ui": "tsx src/tui.ts",
     "collect": "tsx src/index.ts collect",
     "preview": "tsx src/index.ts preview",
     "send": "tsx src/index.ts send",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@octokit/rest": "^21.0.0",
+    "inquirer": "^14.0.2",
     "nodemailer": "^6.9.0",
     "yaml": "^2.9.0"
   },

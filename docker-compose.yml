@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     ports:
-      - "3456:3456"   # Web 管理界面
+      - "6701:3456"   # Web 管理界面
     volumes:
       # 挂载配置文件
       - ./config:/app/config

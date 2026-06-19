@@ -66,8 +66,8 @@ jobs:
           password: ${{ secrets.DEPLOY_PASSWORD }}
           script: |
             IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):latest"
-            CONTAINER="github-promoter"
-            APP_DIR="/opt/github-promoter"
+            CONTAINER="promoter"
+            APP_DIR="/opt/1panel/apps/openresty/openresty/www/sites/promoter.shenzjd.com/index"
 
             # 确保应用目录存在
             sudo mkdir -p "$APP_DIR/config" "$APP_DIR/data" "$APP_DIR/logs"
@@ -88,6 +88,7 @@ jobs:
               -v "$APP_DIR/config:/app/config" \
               -v "$APP_DIR/data:/app/data" \
               -v "$APP_DIR/logs:/app/logs" \
+              -p 6701:3456 \
               "$IMAGE"
 
             # 清理旧镜像

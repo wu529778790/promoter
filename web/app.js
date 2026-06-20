@@ -25,10 +25,18 @@ function switchPage(page) {
 
   // 加载页面数据
   switch (page) {
-    case 'dashboard': loadDashboard(); break;
+    case 'dashboard':
+      loadDashboard();
+      loadSetupStatus();
+      break;
     case 'config': loadConfigPage(); break;
     case 'logs': loadLogs(); break;
     case 'send': loadSendStatus(); break;
+  }
+
+  // 更新功能页的配置提示
+  if (['collect', 'send', 'preview'].includes(page)) {
+    updateSetupUI();
   }
 }
 
@@ -118,6 +126,11 @@ async function loadDashboard() {
 // ============================================================
 
 async function quickCollect() {
+  if (!setupStatus.github_token) {
+    showInlineSetup('github');
+    showToast('请先配置 GitHub Token', 'error');
+    return;
+  }
   if (!confirm('确认开始采集邮箱？')) return;
   showToast('采集已启动...');
   const result = await api('/api/collect', { method: 'POST', body: '{}' });
@@ -125,6 +138,11 @@ async function quickCollect() {
 }
 
 async function quickSend() {
+  if (!setupStatus.smtp) {
+    showInlineSetup('smtp');
+    showToast('请先配置 SMTP 邮箱', 'error');
+    return;
+  }
   if (!confirm('确认开始发送邮件？')) return;
   showToast('发送已启动...');
   const result = await api('/api/send', {
@@ -152,6 +170,11 @@ async function testSmtp() {
 // ============================================================
 
 async function startCollect() {
+  if (!setupStatus.github_token) {
+    showInlineSetup('github');
+    showStatus('collect-status', '请先配置 GitHub Token', 'error');
+    return;
+  }
   const repo = document.getElementById('collect-repo').value.trim();
   if (!repo) {
     showStatus('collect-status', '请输入仓库链接', 'error');
@@ -167,6 +190,11 @@ async function startCollect() {
 }
 
 async function startCollectConfig() {
+  if (!setupStatus.github_token) {
+    showInlineSetup('github');
+    showStatus('collect-status', '请先配置 GitHub Token', 'error');
+    return;
+  }
   showStatus('collect-status', '采集中...', 'info');
   const result = await api('/api/collect', { method: 'POST', body: '{}' });
   showStatus('collect-status', result.ok ? '✅ 采集完成' : `❌ ${result.error}`, result.ok ? 'success' : 'error');
@@ -199,6 +227,11 @@ async function loadPreview() {
 // ============================================================
 
 async function startSend() {
+  if (!setupStatus.smtp) {
+    showInlineSetup('smtp');
+    showStatus('send-status', '请先配置 SMTP 邮箱', 'error');
+    return;
+  }
   const limit = parseInt(document.getElementById('send-limit').value) || 0;
   const dryRun = document.getElementById('send-dryrun').checked;
 
@@ -362,58 +395,171 @@ function applyTheme(theme) {
 }
 
 // ============================================================
-// 初始化向导
+// 按需配置（Setup Banner + 内联配置）
 // ============================================================
 
-async function checkSetup() {
-  const result = await api('/api/setup');
-  if (result.ok && result.data.needsSetup) {
-    document.getElementById('setup-overlay').style.display = 'flex';
-    return true;
-  }
-  return false;
+let setupStatus = { github_token: false, smtp: false, product: false };
+
+async function loadSetupStatus() {
+  const result = await api('/api/setup/status');
+  if (!result.ok) return;
+  setupStatus = result.data;
+  updateSetupUI();
 }
 
-async function saveSetup() {
-  const githubToken = document.getElementById('setup-github-token').value.trim();
-  const smtpUser = document.getElementById('setup-smtp-user').value.trim();
-  const smtpPass = document.getElementById('setup-smtp-pass').value.trim();
-  const smtpHost = document.getElementById('setup-smtp-host').value.trim();
-  const smtpPort = document.getElementById('setup-smtp-port').value.trim();
-  const productName = document.getElementById('setup-product-name').value.trim();
-  const productDesc = document.getElementById('setup-product-desc').value.trim();
-  const githubUrl = document.getElementById('setup-github-url').value.trim();
+function updateSetupUI() {
+  const allDone = setupStatus.github_token && setupStatus.smtp && setupStatus.product;
+  const banner = document.getElementById('setup-banner');
 
-  if (!smtpUser || !smtpPass) {
-    showStatus('setup-status', '请填写邮箱和密码', 'error');
-    return;
+  // 检查 banner 是否被用户手动关闭过（且配置未变化）
+  const bannerDismissed = localStorage.getItem('setup_banner_dismissed');
+  if (allDone || bannerDismissed === 'done') {
+    banner.style.display = 'none';
+  } else {
+    banner.style.display = 'block';
+    // 更新勾选状态
+    updateCheck('github', setupStatus.github_token);
+    updateCheck('smtp', setupStatus.smtp);
+    updateCheck('product', setupStatus.product);
   }
 
-  showStatus('setup-status', '保存中...', 'info');
+  // 更新功能页提示
+  toggle('collect-setup-hint', !setupStatus.github_token);
+  toggle('send-setup-hint', !setupStatus.smtp);
+  toggle('preview-setup-hint', !setupStatus.product);
+}
 
-  // 只保存 .env 一个文件
-  const result = await api('/api/setup/env', {
+function updateCheck(key, done) {
+  const el = document.getElementById(`banner-check-${key}`);
+  if (el) el.textContent = done ? '☑' : '☐';
+  const item = document.getElementById(`banner-${key}`);
+  if (item) item.className = `setup-banner-item ${done ? 'done' : ''}`;
+}
+
+function toggle(id, show) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+function closeSetupBanner() {
+  document.getElementById('setup-banner').style.display = 'none';
+  localStorage.setItem('setup_banner_dismissed', 'done');
+}
+
+function scrollToSetup(type) {
+  if (setupStatus[type]) return; // 已配置，不操作
+  showInlineSetup(type);
+}
+
+function showInlineSetup(type) {
+  const container = document.getElementById('setup-inline');
+  const title = document.getElementById('setup-inline-title');
+  const body = document.getElementById('setup-inline-body');
+
+  const forms = {
+    github: {
+      title: '🔗 配置 GitHub Token',
+      html: `
+        <div class="form-group">
+          <label>GitHub Personal Access Token</label>
+          <input type="password" id="inline-github-token" placeholder="ghp_xxxxx" class="input">
+          <span class="form-hint">用于采集邮箱，需要 repo 权限</span>
+        </div>
+        <button class="btn btn-primary" onclick="saveInlineSetup('github')">💾 保存</button>
+      `,
+    },
+    smtp: {
+      title: '📧 配置 SMTP 邮箱',
+      html: `
+        <div class="form-group">
+          <label>发件邮箱</label>
+          <input type="email" id="inline-smtp-user" placeholder="your_email@qq.com" class="input">
+        </div>
+        <div class="form-group">
+          <label>邮箱密码/授权码</label>
+          <input type="password" id="inline-smtp-pass" placeholder="QQ邮箱授权码" class="input">
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex: 2">
+            <label>SMTP 服务器</label>
+            <input type="text" id="inline-smtp-host" value="smtp.qq.com" class="input">
+          </div>
+          <div class="form-group" style="flex: 1">
+            <label>端口</label>
+            <input type="number" id="inline-smtp-port" value="465" class="input">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveInlineSetup('smtp')">💾 保存</button>
+      `,
+    },
+    product: {
+      title: '📦 配置产品信息',
+      html: `
+        <div class="form-group">
+          <label>产品名称</label>
+          <input type="text" id="inline-product-name" placeholder="My Awesome Project" class="input">
+        </div>
+        <div class="form-group">
+          <label>产品描述</label>
+          <input type="text" id="inline-product-desc" placeholder="一句话介绍你的项目" class="input">
+        </div>
+        <div class="form-group">
+          <label>GitHub 仓库地址</label>
+          <input type="text" id="inline-product-repo" placeholder="https://github.com/your-username/your-project" class="input">
+        </div>
+        <button class="btn btn-primary" onclick="saveInlineSetup('product')">💾 保存</button>
+      `,
+    },
+  };
+
+  const form = forms[type];
+  if (!form) return;
+  title.textContent = form.title;
+  body.innerHTML = `<div id="inline-setup-status" class="status-msg"></div>${form.html}`;
+  container.style.display = 'block';
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeSetupInline() {
+  document.getElementById('setup-inline').style.display = 'none';
+}
+
+async function saveInlineSetup(type) {
+  const statusEl = 'inline-setup-status';
+  let payload = {};
+
+  if (type === 'github') {
+    const token = document.getElementById('inline-github-token').value.trim();
+    if (!token) return showStatus(statusEl, '请填写 Token', 'error');
+    payload = { github_token: token };
+  } else if (type === 'smtp') {
+    const user = document.getElementById('inline-smtp-user').value.trim();
+    const pass = document.getElementById('inline-smtp-pass').value.trim();
+    const host = document.getElementById('inline-smtp-host').value.trim();
+    const port = document.getElementById('inline-smtp-port').value.trim();
+    if (!user || !pass) return showStatus(statusEl, '请填写邮箱和密码', 'error');
+    payload = { smtp_user: user, smtp_pass: pass, smtp_host: host, smtp_port: port };
+  } else if (type === 'product') {
+    const name = document.getElementById('inline-product-name').value.trim();
+    const desc = document.getElementById('inline-product-desc').value.trim();
+    const repo = document.getElementById('inline-product-repo').value.trim();
+    if (!name) return showStatus(statusEl, '请填写产品名称', 'error');
+    payload = { product_name: name, product_desc: desc, github_repo: repo };
+  }
+
+  showStatus(statusEl, '保存中...', 'info');
+  const result = await api(`/api/setup/${type}`, {
     method: 'POST',
-    body: JSON.stringify({
-      github_token: githubToken,
-      smtp_host: smtpHost,
-      smtp_port: smtpPort,
-      smtp_user: smtpUser,
-      smtp_pass: smtpPass,
-      product_name: productName,
-      product_desc: productDesc,
-      github_repo: githubUrl,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (result.ok) {
-    showStatus('setup-status', '✅ 配置已保存，正在刷新...', 'success');
-    setTimeout(() => {
-      document.getElementById('setup-overlay').style.display = 'none';
-      loadDashboard();
-    }, 1500);
+    showStatus(statusEl, '✅ 保存成功', 'success');
+    setupStatus[type] = true;
+    updateSetupUI();
+    setTimeout(closeSetupInline, 1000);
   } else {
-    showStatus('setup-status', `保存失败: ${result.error}`, 'error');
+    showStatus(statusEl, `❌ ${result.error}`, 'error');
   }
 }
 
@@ -422,6 +568,5 @@ async function saveSetup() {
 // ============================================================
 
 initTheme();
-checkSetup().then(() => {
-  loadDashboard();
-});
+loadSetupStatus();
+loadDashboard();

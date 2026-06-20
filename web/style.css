@@ -500,53 +500,133 @@ h2 {
   transform: translateY(0);
 }
 
-/* 初始化向导 */
-.setup-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  z-index: 2000;
+/* Setup Banner（仪表盘顶部提示） */
+.setup-banner {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.setup-banner-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.setup-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 40px;
-  max-width: 520px;
-  width: 100%;
-  text-align: center;
-}
-
-.setup-logo {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.setup-subtitle {
-  color: var(--text-muted);
-  margin-bottom: 32px;
-  font-size: 14px;
-}
-
-.setup-step {
-  text-align: left;
-}
-
-.setup-step h2 {
-  font-size: 15px;
   margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--warning);
+}
+
+.setup-banner-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.setup-banner-close:hover {
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text);
 }
 
-.setup-actions {
-  margin-top: 28px;
-  text-align: center;
+.setup-banner-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.setup-banner-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.setup-banner-item.done {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.setup-banner-check {
+  font-size: 16px;
+  color: var(--warning);
+}
+
+.setup-banner-item.done .setup-banner-check {
+  color: var(--success);
+}
+
+/* 内联配置卡片 */
+.setup-inline {
+  margin-bottom: 20px;
+}
+
+.setup-inline-card {
+  background: var(--bg-card);
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.setup-inline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.setup-inline-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+  margin: 0;
+}
+
+.setup-inline-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.setup-inline-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+/* 功能页配置提示 */
+.feature-setup-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--warning);
+}
+
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 13px;
 }
 
 .form-hint {

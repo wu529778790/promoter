@@ -49,7 +49,121 @@ app.get('/api/setup', (req, res) => {
 });
 
 // ============================================================
-// API: 保存 .env
+// API: 配置状态检查（按需配置）
+// ============================================================
+
+function parseEnvFile(): Record<string, string> {
+  if (!existsSync(ENV_PATH)) return {};
+  try {
+    const content = readFileSync(ENV_PATH, 'utf-8');
+    const result: Record<string, string> = {};
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim();
+        result[key] = val;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeEnvFile(updates: Record<string, string>) {
+  const existing = parseEnvFile();
+  const merged = { ...existing, ...updates };
+  const lines = [
+    `# GitHub Token`,
+    `GITHUB_TOKEN=${merged.GITHUB_TOKEN || ''}`,
+    ``,
+    `# SMTP 邮箱配置`,
+    `SMTP_HOST=${merged.SMTP_HOST || 'smtp.qq.com'}`,
+    `SMTP_PORT=${merged.SMTP_PORT || '465'}`,
+    `SMTP_USER=${merged.SMTP_USER || ''}`,
+    `SMTP_PASS=${merged.SMTP_PASS || ''}`,
+    `SMTP_DAILY_LIMIT=${merged.SMTP_DAILY_LIMIT || '200'}`,
+    ``,
+    `# 产品信息`,
+    `PRODUCT_NAME=${merged.PRODUCT_NAME || ''}`,
+    `PRODUCT_DESC=${merged.PRODUCT_DESC || ''}`,
+    `GITHUB_REPO=${merged.GITHUB_REPO || ''}`,
+    ``,
+    `# 调试`,
+    `DRY_RUN=${merged.DRY_RUN || 'false'}`,
+    `LOG_LEVEL=${merged.LOG_LEVEL || 'info'}`,
+  ];
+  writeFileSync(ENV_PATH, lines.join('\n'));
+}
+
+app.get('/api/setup/status', (_req, res) => {
+  const env = parseEnvFile();
+  res.json({
+    ok: true,
+    data: {
+      github_token: !!env.GITHUB_TOKEN,
+      smtp: !!(env.SMTP_USER && env.SMTP_PASS),
+      product: !!env.PRODUCT_NAME,
+    },
+  });
+});
+
+app.post('/api/setup/github-token', (req, res) => {
+  try {
+    const { github_token } = req.body;
+    if (!github_token) {
+      return res.json({ ok: false, error: '请填写 GitHub Token' });
+    }
+    writeEnvFile({ GITHUB_TOKEN: github_token });
+    resetConfig();
+    res.json({ ok: true, message: 'GitHub Token 已保存' });
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/api/setup/smtp', (req, res) => {
+  try {
+    const { smtp_host, smtp_port, smtp_user, smtp_pass } = req.body;
+    if (!smtp_user || !smtp_pass) {
+      return res.json({ ok: false, error: '请填写邮箱和密码/授权码' });
+    }
+    writeEnvFile({
+      SMTP_HOST: smtp_host || 'smtp.qq.com',
+      SMTP_PORT: smtp_port || '465',
+      SMTP_USER: smtp_user,
+      SMTP_PASS: smtp_pass,
+    });
+    resetConfig();
+    res.json({ ok: true, message: 'SMTP 配置已保存' });
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/api/setup/product', (req, res) => {
+  try {
+    const { product_name, product_desc, github_repo } = req.body;
+    if (!product_name) {
+      return res.json({ ok: false, error: '请填写产品名称' });
+    }
+    writeEnvFile({
+      PRODUCT_NAME: product_name,
+      PRODUCT_DESC: product_desc || '',
+      GITHUB_REPO: github_repo || '',
+    });
+    resetConfig();
+    res.json({ ok: true, message: '产品信息已保存' });
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// ============================================================
+// API: 保存 .env（兼容旧接口）
 // ============================================================
 
 app.post('/api/setup/env', (req, res) => {

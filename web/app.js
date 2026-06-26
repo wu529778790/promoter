@@ -1,47 +1,42 @@
 /**
- * GitHub Promoter - 前端逻辑
+ * Promoter - Frontend Logic
  */
 
 // ============================================================
-// 页面导航
+// State
+// ============================================================
+
+let setupStatus = { github_token: false, smtp: false, product: false };
+let isAuthorized = false;
+
+// ============================================================
+// Navigation
 // ============================================================
 
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', (e) => {
     e.preventDefault();
-    const page = item.dataset.page;
-    switchPage(page);
+    switchPage(item.dataset.page);
   });
 });
 
 function switchPage(page) {
-  // 更新导航
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
 
-  // 更新页面
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(`page-${page}`)?.classList.add('active');
 
-  // 加载页面数据
   switch (page) {
-    case 'dashboard':
-      loadDashboard();
-      loadSetupStatus();
-      break;
+    case 'dashboard': loadDashboard(); break;
     case 'config': loadConfigPage(); break;
     case 'logs': loadLogs(); break;
     case 'send': loadSendStatus(); break;
   }
-
-  // 更新功能页的配置提示
-  if (['collect', 'send', 'preview'].includes(page)) {
-    updateSetupUI();
-  }
 }
 
 // ============================================================
-// Toast 通知
+// Toast
 // ============================================================
 
 function showToast(msg, type = 'info') {
@@ -52,7 +47,7 @@ function showToast(msg, type = 'info') {
 }
 
 // ============================================================
-// 状态消息
+// Status
 // ============================================================
 
 function showStatus(elementId, msg, type = 'info') {
@@ -64,7 +59,7 @@ function showStatus(elementId, msg, type = 'info') {
 }
 
 // ============================================================
-// API 请求
+// API
 // ============================================================
 
 async function api(url, options = {}) {
@@ -73,72 +68,153 @@ async function api(url, options = {}) {
       headers: { 'Content-Type': 'application/json' },
       ...options,
     });
-    return await res.json();
+    const data = await res.json();
+    // Handle auth errors globally
+    if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
+        showLoginScreen();
+      } else {
+        showToast('无权访问本系统', 'error');
+      }
+      return { ok: false, error: data.error || '未授权' };
+    }
+    return data;
   } catch (error) {
     return { ok: false, error: error.message };
   }
 }
 
 // ============================================================
-// 仪表盘
+// Auth
+// ============================================================
+
+function showLoginScreen() {
+  isAuthorized = false;
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+function githubLogin() {
+  const w = 500, h = 600;
+  const left = (screen.width - w) / 2;
+  const top = (screen.height - h) / 2;
+  window.open('/auth/github', 'github-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'github-login-ok') {
+    checkAuth();
+  }
+});
+
+async function checkAuth() {
+  const result = await api('/api/auth/github/status');
+  if (!result.ok) return;
+  const d = result.data;
+
+  isAuthorized = d.loggedIn && d.authorized;
+
+  if (isAuthorized) {
+    showApp();
+    loadDashboard();
+    renderUser(d);
+  } else if (d.loggedIn && !d.authorized) {
+    // Logged in but not authorized - show message on login screen
+    const content = document.getElementById('login-content');
+    content.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <img src="${d.avatar}" style="width:48px;height:48px;border-radius:50%;border:2px solid var(--border);margin-bottom:12px;">
+        <div style="color:var(--text-0);font-weight:500;margin-bottom:4px;">${d.login}</div>
+        <div style="color:var(--danger);font-size:13px;">无权访问本系统</div>
+      </div>
+      <button class="btn btn-ghost" onclick="githubLogout()">退出</button>
+    `;
+  } else {
+    showLoginScreen();
+  }
+}
+
+function renderUser(d) {
+  const area = document.getElementById('user-area');
+  if (!area) return;
+  area.innerHTML = `
+    <div class="user-info">
+      <img src="${d.avatar}" class="user-avatar" alt="${d.login}">
+      <span class="user-name">${d.login}</span>
+      <button class="btn btn-ghost btn-sm" onclick="githubLogout()" title="退出">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+async function githubLogout() {
+  await api('/api/auth/github/logout', { method: 'POST' });
+  isAuthorized = false;
+  showLoginScreen();
+}
+
+// ============================================================
+// Dashboard
 // ============================================================
 
 async function loadDashboard() {
   const result = await api('/api/status');
-  if (!result.ok) {
-    if (result.error === '请先登录 GitHub' || result.error === '无权访问') {
-      document.getElementById('email-count').textContent = '-';
-      document.getElementById('sender-count').textContent = '-';
-      document.getElementById('combo-count').textContent = '-';
-      document.getElementById('product-name').textContent = '-';
-    }
-    return;
-  }
-
+  if (!result.ok) return;
   const d = result.data;
 
-  // 统计数字
-  document.getElementById('email-count').textContent = d.emailCount;
+  document.getElementById('email-count').textContent = d.emailCount?.toLocaleString() ?? '-';
   document.getElementById('sender-count').textContent = d.senders.length;
-  document.getElementById('combo-count').textContent = d.combinationCount?.toLocaleString() || '-';
+  document.getElementById('combo-count').textContent = d.combinationCount?.toLocaleString() ?? '-';
   document.getElementById('product-name').textContent = d.product?.product_name || '-';
 
-  // 来源统计
+  // Source stats
   const sourceEl = document.getElementById('source-stats');
-  const stats = d.productStats;
+  const stats = d.productStats || {};
   if (Object.keys(stats).length === 0) {
-    sourceEl.innerHTML = '<span style="color: var(--text-muted)">暂无数据</span>';
+    sourceEl.innerHTML = '<span class="text-muted" style="font-size:13px;">暂无数据</span>';
   } else {
-    const icons = { stargazer: '⭐', 'issue-author': '📝', 'issue-commenter': '💬', 'pr-author': '🔀', 'pr-reviewer': '🔍', forker: '🍴' };
+    const icons = {
+      stargazer: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+      'issue-author': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+      'issue-commenter': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+      'pr-author': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></svg>',
+      'pr-reviewer': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
+      forker: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></svg>',
+    };
     sourceEl.innerHTML = Object.entries(stats).map(([type, count]) =>
-      `<div class="source-item"><span>${icons[type] || '❓'}</span><span>${type}</span><span class="source-count">${count}</span></div>`
+      `<div class="source-item">${icons[type] || ''} <span>${type}</span> <span class="source-count">${count}</span></div>`
     ).join('');
   }
 
-  // 发件人列表
+  // Sender list
   const senderEl = document.getElementById('sender-list');
-  senderEl.innerHTML = d.senders.map(s =>
-    `<div class="sender-item">
-      <div class="sender-info">
-        <span>👤</span>
-        <span>${s.name || s.email}</span>
-        <span style="color: var(--text-muted); font-size: 12px">${s.server}:${s.email}</span>
-      </div>
-      <span class="sender-status ${s.status}">${s.status === 'active' ? '🟢 活跃' : '⏸️ 禁用'}</span>
-    </div>`
-  ).join('');
+  if (d.senders.length === 0) {
+    senderEl.innerHTML = '<span class="text-muted" style="font-size:13px;">暂无发件人</span>';
+  } else {
+    senderEl.innerHTML = d.senders.map(s =>
+      `<div class="sender-item">
+        <div class="sender-info">
+          <span style="font-weight:500;">${s.name || s.email}</span>
+          <span class="sender-email">${s.email}</span>
+        </div>
+        <span class="sender-status ${s.status}">${s.status === 'active' ? '活跃' : '禁用'}</span>
+      </div>`
+    ).join('');
+  }
 }
 
 // ============================================================
-// 快速操作
+// Quick Actions
 // ============================================================
 
 async function quickCollect() {
-  if (!setupStatus.github_token) {
-    githubLogin();
-    showToast('请先登录 GitHub 获取 Token', 'error');
-    return;
-  }
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   if (!confirm('确认开始采集邮箱？')) return;
   showToast('采集已启动...');
   const result = await api('/api/collect', { method: 'POST', body: '{}' });
@@ -146,11 +222,7 @@ async function quickCollect() {
 }
 
 async function quickSend() {
-  if (!setupStatus.smtp) {
-    showInlineSetup('smtp');
-    showToast('请先配置 SMTP 邮箱', 'error');
-    return;
-  }
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   if (!confirm('确认开始发送邮件？')) return;
   showToast('发送已启动...');
   const result = await api('/api/send', {
@@ -161,12 +233,13 @@ async function quickSend() {
 }
 
 async function testSmtp() {
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   showToast('正在测试连接...');
   const result = await api('/api/test-smtp', { method: 'POST' });
   if (result.ok) {
     const allOk = result.data.every(r => r.success);
-    const msgs = result.data.map(r => `${r.name}: ${r.success ? '✅' : '❌ ' + r.message}`).join('\n');
     showToast(allOk ? '所有连接成功' : '部分连接失败', allOk ? 'success' : 'error');
+    const msgs = result.data.map(r => `${r.name}: ${r.success ? 'OK' : 'FAIL - ' + r.message}`).join('\n');
     alert(msgs);
   } else {
     showToast(`测试失败: ${result.error}`, 'error');
@@ -174,72 +247,37 @@ async function testSmtp() {
 }
 
 // ============================================================
-// 采集
+// Collect
 // ============================================================
 
 async function startCollect() {
-  if (!setupStatus.github_token) {
-    githubLogin();
-    showStatus('collect-status', '请先登录 GitHub 获取 Token', 'error');
-    return;
-  }
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   const repo = document.getElementById('collect-repo').value.trim();
   if (!repo) {
     showStatus('collect-status', '请输入仓库链接', 'error');
     return;
   }
-
   showStatus('collect-status', '采集中...', 'info');
   const result = await api('/api/collect', {
     method: 'POST',
     body: JSON.stringify({ repo }),
   });
-  showStatus('collect-status', result.ok ? '✅ 采集完成' : `❌ ${result.error}`, result.ok ? 'success' : 'error');
+  showStatus('collect-status', result.ok ? '采集完成' : result.error, result.ok ? 'success' : 'error');
 }
 
 async function startCollectConfig() {
-  if (!setupStatus.github_token) {
-    githubLogin();
-    showStatus('collect-status', '请先登录 GitHub 获取 Token', 'error');
-    return;
-  }
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   showStatus('collect-status', '采集中...', 'info');
   const result = await api('/api/collect', { method: 'POST', body: '{}' });
-  showStatus('collect-status', result.ok ? '✅ 采集完成' : `❌ ${result.error}`, result.ok ? 'success' : 'error');
+  showStatus('collect-status', result.ok ? '采集完成' : result.error, result.ok ? 'success' : 'error');
 }
 
 // ============================================================
-// 预览
-// ============================================================
-
-async function loadPreview() {
-  const count = document.getElementById('preview-count').value || 5;
-  const result = await api(`/api/preview?count=${count}`);
-  if (!result.ok) return;
-
-  const list = document.getElementById('preview-list');
-  list.innerHTML = result.data.map(e =>
-    `<div class="preview-item">
-      <div class="preview-header">
-        <span>第 ${e.index} 封</span>
-        <span>收件人: ${e.recipient}</span>
-      </div>
-      <div class="preview-subject">📧 ${e.subject}</div>
-      <div class="preview-body">${e.text}</div>
-    </div>`
-  ).join('');
-}
-
-// ============================================================
-// 发送
+// Send
 // ============================================================
 
 async function startSend() {
-  if (!setupStatus.smtp) {
-    showInlineSetup('smtp');
-    showStatus('send-status', '请先配置 SMTP 邮箱', 'error');
-    return;
-  }
+  if (!isAuthorized) { showToast('请先登录', 'error'); return; }
   const limit = parseInt(document.getElementById('send-limit').value) || 0;
   const dryRun = document.getElementById('send-dryrun').checked;
 
@@ -250,32 +288,23 @@ async function startSend() {
     method: 'POST',
     body: JSON.stringify({ dryRun, limit: limit || undefined }),
   });
-  showStatus('send-status', result.ok ? `✅ ${result.message}` : `❌ ${result.error}`, result.ok ? 'success' : 'error');
+  showStatus('send-status', result.ok ? result.message : result.error, result.ok ? 'success' : 'error');
 }
 
 async function loadSendStatus() {
   const result = await api('/api/send-status');
   if (!result.ok) return;
-
   const d = result.data;
-  const el = document.getElementById('send-progress');
-  el.innerHTML = `
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-      <div>📊 采集邮箱: <strong>${d.emailCount}</strong></div>
-      <div>🔄 采集中: <strong>${d.isCollecting ? '是' : '否'}</strong></div>
-      <div>📤 发送中: <strong>${d.isSending ? '是' : '否'}</strong></div>
-    </div>
-    ${Object.keys(d.productStats).length > 0 ? `
-      <div style="margin-top: 12px; color: var(--text-muted);">各来源统计:</div>
-      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-        ${Object.entries(d.productStats).map(([k, v]) => `<span class="source-item">${k}: ${v}</span>`).join('')}
-      </div>
-    ` : ''}
+
+  document.getElementById('send-progress').innerHTML = `
+    <div>采集邮箱: <strong>${d.emailCount}</strong></div>
+    <div>采集中: <strong style="color:${d.isCollecting ? 'var(--warning)' : 'var(--text-3)'}">${d.isCollecting ? '是' : '否'}</strong></div>
+    <div>发送中: <strong style="color:${d.isSending ? 'var(--warning)' : 'var(--text-3)'}">${d.isSending ? '是' : '否'}</strong></div>
   `;
 }
 
 // ============================================================
-// 配置管理
+// Config
 // ============================================================
 
 async function loadConfigPage() {
@@ -292,23 +321,15 @@ async function loadConfigPage() {
 
 async function saveConfig() {
   const content = document.getElementById('config-editor').value;
-  try {
-    const result = await api('/api/env', {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    });
-    showStatus('config-status', result.ok ? '✅ 配置已保存' : `❌ ${result.error}`, result.ok ? 'success' : 'error');
-    if (result.ok) {
-      // 刷新配置状态
-      loadSetupStatus();
-    }
-  } catch (e) {
-    showStatus('config-status', `❌ 保存失败: ${e.message}`, 'error');
-  }
+  const result = await api('/api/env', {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+  showStatus('config-status', result.ok ? '配置已保存' : result.error, result.ok ? 'success' : 'error');
 }
 
 // ============================================================
-// 日志
+// Logs
 // ============================================================
 
 let logTimer = null;
@@ -316,13 +337,10 @@ let logTimer = null;
 async function loadLogs() {
   const result = await api('/api/logs');
   const el = document.getElementById('log-content');
-  if (!result.ok) {
-    el.textContent = `错误: ${result.error}`;
-    return;
-  }
+  if (!result.ok) { el.textContent = `错误: ${result.error}`; return; }
 
   if (result.data.length === 0) {
-    el.innerHTML = '<span style="color: var(--text-muted)">暂无日志</span>';
+    el.innerHTML = '<span style="color:var(--text-3)">暂无日志</span>';
     return;
   }
 
@@ -333,13 +351,11 @@ async function loadLogs() {
     return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
   }).join('');
 
-  // 滚动到底部
   el.scrollTop = el.scrollHeight;
 }
 
 function toggleLogAutoRefresh() {
-  const checked = document.getElementById('log-autorefresh').checked;
-  if (checked) {
+  if (document.getElementById('log-autorefresh').checked) {
     logTimer = setInterval(loadLogs, 5000);
   } else {
     clearInterval(logTimer);
@@ -354,314 +370,7 @@ function escapeHtml(text) {
 }
 
 // ============================================================
-// 主题切换
+// Init
 // ============================================================
 
-function initTheme() {
-  // 1. 优先使用 localStorage 中保存的偏好
-  const saved = localStorage.getItem('theme');
-  if (saved) {
-    applyTheme(saved);
-    return;
-  }
-
-  // 2. 跟随系统偏好
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-  applyTheme(prefersDark.matches ? 'dark' : 'light');
-
-  // 监听系统主题变化
-  prefersDark.addEventListener('change', (e) => {
-    if (!localStorage.getItem('theme')) {
-      applyTheme(e.matches ? 'dark' : 'light');
-    }
-  });
-}
-
-function toggleTheme() {
-  const current = document.documentElement.classList.contains('light') ? 'light' : 'dark';
-  const next = current === 'light' ? 'dark' : 'light';
-  localStorage.setItem('theme', next);
-  applyTheme(next);
-}
-
-function applyTheme(theme) {
-  const root = document.documentElement;
-  const btn = document.getElementById('theme-toggle');
-
-  if (theme === 'light') {
-    root.classList.add('light');
-    if (btn) btn.textContent = '☀️';
-  } else {
-    root.classList.remove('light');
-    if (btn) btn.textContent = '🌙';
-  }
-}
-
-// ============================================================
-// 按需配置（Setup Banner + 内联配置）
-// ============================================================
-
-let setupStatus = { github_token: false, smtp: false, product: false };
-
-async function loadSetupStatus() {
-  const result = await api('/api/setup/status');
-  if (!result.ok) return;
-  setupStatus = result.data;
-  updateSetupUI();
-}
-
-function updateSetupUI() {
-  const allDone = setupStatus.github_token && setupStatus.smtp && setupStatus.product;
-  const banner = document.getElementById('setup-banner');
-
-  // 检查 banner 是否被用户手动关闭过（且配置未变化）
-  const bannerDismissed = localStorage.getItem('setup_banner_dismissed');
-  if (allDone || bannerDismissed === 'done') {
-    banner.style.display = 'none';
-  } else {
-    banner.style.display = 'block';
-    // 更新勾选状态
-    updateCheck('github', setupStatus.github_token);
-    updateCheck('smtp', setupStatus.smtp);
-    updateCheck('product', setupStatus.product);
-  }
-
-  // 更新功能页提示
-  toggle('collect-setup-hint', !setupStatus.github_token);
-  toggle('send-setup-hint', !setupStatus.smtp);
-  toggle('preview-setup-hint', !setupStatus.product);
-}
-
-function updateCheck(key, done) {
-  const el = document.getElementById(`banner-check-${key}`);
-  if (el) el.textContent = done ? '☑' : '☐';
-  const item = document.getElementById(`banner-${key}`);
-  if (item) item.className = `setup-banner-item ${done ? 'done' : ''}`;
-}
-
-function toggle(id, show) {
-  const el = document.getElementById(id);
-  if (el) el.style.display = show ? 'flex' : 'none';
-}
-
-function closeSetupBanner() {
-  document.getElementById('setup-banner').style.display = 'none';
-  localStorage.setItem('setup_banner_dismissed', 'done');
-}
-
-function scrollToSetup(type) {
-  if (type === 'github') {
-    // GitHub Token 通过 OAuth 登录获取
-    if (!setupStatus.github_token) {
-      githubLogin();
-    }
-    return;
-  }
-  if (setupStatus[type]) return; // 已配置，不操作
-  showInlineSetup(type);
-}
-
-function showInlineSetup(type) {
-  const container = document.getElementById('setup-inline');
-  const title = document.getElementById('setup-inline-title');
-  const body = document.getElementById('setup-inline-body');
-
-  const forms = {
-    smtp: {
-      title: '📧 配置 SMTP 邮箱',
-      html: `
-        <div class="form-group">
-          <label>发件邮箱</label>
-          <input type="email" id="inline-smtp-user" placeholder="your_email@qq.com" class="input">
-        </div>
-        <div class="form-group">
-          <label>邮箱密码/授权码</label>
-          <input type="password" id="inline-smtp-pass" placeholder="QQ邮箱授权码" class="input">
-        </div>
-        <div class="form-row">
-          <div class="form-group" style="flex: 2">
-            <label>SMTP 服务器</label>
-            <input type="text" id="inline-smtp-host" value="smtp.qq.com" class="input">
-          </div>
-          <div class="form-group" style="flex: 1">
-            <label>端口</label>
-            <input type="number" id="inline-smtp-port" value="465" class="input">
-          </div>
-        </div>
-        <button class="btn btn-primary" onclick="saveInlineSetup('smtp')">💾 保存</button>
-      `,
-    },
-    product: {
-      title: '📦 配置产品信息',
-      html: `
-        <div class="form-group">
-          <label>产品名称</label>
-          <input type="text" id="inline-product-name" placeholder="My Awesome Project" class="input">
-        </div>
-        <div class="form-group">
-          <label>产品描述</label>
-          <input type="text" id="inline-product-desc" placeholder="一句话介绍你的项目" class="input">
-        </div>
-        <div class="form-group">
-          <label>GitHub 仓库地址</label>
-          <input type="text" id="inline-product-repo" placeholder="https://github.com/your-username/your-project" class="input">
-        </div>
-        <button class="btn btn-primary" onclick="saveInlineSetup('product')">💾 保存</button>
-      `,
-    },
-  };
-
-  const form = forms[type];
-  if (!form) return;
-  title.textContent = form.title;
-  body.innerHTML = `<div id="inline-setup-status" class="status-msg"></div>${form.html}`;
-  container.style.display = 'block';
-  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function closeSetupInline() {
-  document.getElementById('setup-inline').style.display = 'none';
-}
-
-async function saveInlineSetup(type) {
-  const statusEl = 'inline-setup-status';
-  let payload = {};
-
-  if (type === 'smtp') {
-    const user = document.getElementById('inline-smtp-user').value.trim();
-    const pass = document.getElementById('inline-smtp-pass').value.trim();
-    const host = document.getElementById('inline-smtp-host').value.trim();
-    const port = document.getElementById('inline-smtp-port').value.trim();
-    if (!user || !pass) return showStatus(statusEl, '请填写邮箱和密码', 'error');
-    payload = { smtp_user: user, smtp_pass: pass, smtp_host: host, smtp_port: port };
-  } else if (type === 'product') {
-    const name = document.getElementById('inline-product-name').value.trim();
-    const desc = document.getElementById('inline-product-desc').value.trim();
-    const repo = document.getElementById('inline-product-repo').value.trim();
-    if (!name) return showStatus(statusEl, '请填写产品名称', 'error');
-    payload = { product_name: name, product_desc: desc, github_repo: repo };
-  }
-
-  showStatus(statusEl, '保存中...', 'info');
-  const result = await api(`/api/setup/${type}`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-
-  if (result.ok) {
-    showStatus(statusEl, '✅ 保存成功', 'success');
-    setupStatus[type] = true;
-    updateSetupUI();
-    setTimeout(closeSetupInline, 1000);
-  } else {
-    showStatus(statusEl, `❌ ${result.error}`, 'error');
-  }
-}
-
-// ============================================================
-// GitHub 登录
-// ============================================================
-
-function githubLogin() {
-  const w = 500, h = 600;
-  const left = (screen.width - w) / 2;
-  const top = (screen.height - h) / 2;
-  window.open('/auth/github', 'github-oauth', `width=${w},height=${h},left=${left},top=${top}`);
-}
-
-window.addEventListener('message', (e) => {
-  if (e.data?.type === 'github-login-ok') {
-    checkGitHubStatus();
-    setTimeout(() => {
-      if (isAuthorized) {
-        showToast(`已登录 GitHub: ${e.data.user}`, 'success');
-        loadDashboard();
-      } else {
-        showToast('该账号无权访问本系统', 'error');
-      }
-    }, 300);
-  }
-});
-
-let isAuthorized = false;
-
-async function checkGitHubStatus() {
-  const result = await api('/api/auth/github/status');
-  if (!result.ok) return;
-  const d = result.data;
-  const area = document.getElementById('github-login-area');
-  if (!area) return;
-
-  isAuthorized = d.loggedIn && d.authorized;
-
-  if (d.loggedIn && d.authorized) {
-    area.innerHTML = `
-      <div class="github-user">
-        <img src="${d.avatar}" class="github-avatar" alt="${d.login}">
-        <span class="github-name">${d.login}</span>
-        <button class="btn btn-sm btn-secondary" onclick="githubLogout()">退出</button>
-      </div>
-    `;
-  } else if (d.loggedIn && !d.authorized) {
-    area.innerHTML = `
-      <div class="github-user">
-        <img src="${d.avatar}" class="github-avatar" alt="${d.login}">
-        <span class="github-name" style="color: var(--danger)">${d.login}</span>
-        <button class="btn btn-sm btn-secondary" onclick="githubLogout()">退出</button>
-      </div>
-      <div style="font-size: 12px; color: var(--danger); margin-top: 6px;">无权访问本系统</div>
-    `;
-  } else {
-    area.innerHTML = `
-      <button class="btn btn-secondary btn-github-login" onclick="githubLogin()">
-        <span>🐙</span> GitHub 登录
-      </button>
-    `;
-  }
-
-  // 更新页面可见性
-  updatePageAuth();
-}
-
-async function githubLogout() {
-  await api('/api/auth/github/logout', { method: 'POST' });
-  isAuthorized = false;
-  showToast('已退出登录', 'info');
-  checkGitHubStatus();
-}
-
-function updatePageAuth() {
-  // 未授权时显示遮罩提示
-  const main = document.querySelector('.main');
-  let overlay = document.getElementById('auth-overlay');
-
-  if (!isAuthorized) {
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'auth-overlay';
-      overlay.style.cssText = `
-        position: fixed; top: 0; left: 220px; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.7); z-index: 50;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 18px; color: var(--text-muted);
-      `;
-      overlay.innerHTML = `<div style="text-align:center;">
-        <div style="font-size:48px;margin-bottom:16px;">🔒</div>
-        <div>请使用授权的 GitHub 账号登录</div>
-      </div>`;
-    }
-    overlay.style.display = 'flex';
-    main.appendChild(overlay);
-  } else if (overlay) {
-    overlay.style.display = 'none';
-  }
-}
-
-// ============================================================
-// 初始化
-// ============================================================
-
-initTheme();
-loadSetupStatus();
-checkGitHubStatus();
-loadDashboard();
+checkAuth();

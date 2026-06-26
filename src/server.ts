@@ -24,10 +24,18 @@ const WEB_DIR = join(__dirname, '..', 'web');
 const CONFIG_PATH = join(__dirname, '..', 'config', 'config.yaml');
 const ENV_PATH = join(__dirname, '..', '.env');
 const EMAILS_FILE = join(__dirname, '..', 'data', 'emails.csv');
+const TOKEN_FILE = join(__dirname, '..', 'data', '.github_token');
 
 const app = express();
 const logger = getLogger();
 const PORT = parseInt(process.env.WEB_PORT || '3456', 10);
+
+// 启动时从 data/.github_token 恢复 token（Docker 持久化）
+if (!process.env.GITHUB_TOKEN && existsSync(TOKEN_FILE)) {
+  try {
+    process.env.GITHUB_TOKEN = readFileSync(TOKEN_FILE, 'utf-8').trim();
+  } catch {}
+}
 
 // 中间件
 app.use(express.json());
@@ -288,7 +296,8 @@ app.get('/auth/github/callback', async (req, res) => {
       avatar: userData.avatar_url,
     };
 
-    // 直接更新运行时环境变量（不写磁盘，兼容 Docker 无写权限场景）
+    // 持久化 token 到 data 目录（Docker 可写）
+    try { writeFileSync(TOKEN_FILE, token); } catch {}
     process.env.GITHUB_TOKEN = token;
 
     // 重定向回首页

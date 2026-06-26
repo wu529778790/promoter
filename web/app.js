@@ -85,7 +85,15 @@ async function api(url, options = {}) {
 
 async function loadDashboard() {
   const result = await api('/api/status');
-  if (!result.ok) return;
+  if (!result.ok) {
+    if (result.error === '请先登录 GitHub' || result.error === '无权访问') {
+      document.getElementById('email-count').textContent = '-';
+      document.getElementById('sender-count').textContent = '-';
+      document.getElementById('combo-count').textContent = '-';
+      document.getElementById('product-name').textContent = '-';
+    }
+    return;
+  }
 
   const d = result.data;
 
@@ -127,8 +135,8 @@ async function loadDashboard() {
 
 async function quickCollect() {
   if (!setupStatus.github_token) {
-    showInlineSetup('github');
-    showToast('请先配置 GitHub Token', 'error');
+    githubLogin();
+    showToast('请先登录 GitHub 获取 Token', 'error');
     return;
   }
   if (!confirm('确认开始采集邮箱？')) return;
@@ -171,8 +179,8 @@ async function testSmtp() {
 
 async function startCollect() {
   if (!setupStatus.github_token) {
-    showInlineSetup('github');
-    showStatus('collect-status', '请先配置 GitHub Token', 'error');
+    githubLogin();
+    showStatus('collect-status', '请先登录 GitHub 获取 Token', 'error');
     return;
   }
   const repo = document.getElementById('collect-repo').value.trim();
@@ -191,8 +199,8 @@ async function startCollect() {
 
 async function startCollectConfig() {
   if (!setupStatus.github_token) {
-    showInlineSetup('github');
-    showStatus('collect-status', '请先配置 GitHub Token', 'error');
+    githubLogin();
+    showStatus('collect-status', '请先登录 GitHub 获取 Token', 'error');
     return;
   }
   showStatus('collect-status', '采集中...', 'info');
@@ -442,6 +450,13 @@ function closeSetupBanner() {
 }
 
 function scrollToSetup(type) {
+  if (type === 'github') {
+    // GitHub Token 通过 OAuth 登录获取
+    if (!setupStatus.github_token) {
+      githubLogin();
+    }
+    return;
+  }
   if (setupStatus[type]) return; // 已配置，不操作
   showInlineSetup(type);
 }
@@ -452,17 +467,6 @@ function showInlineSetup(type) {
   const body = document.getElementById('setup-inline-body');
 
   const forms = {
-    github: {
-      title: '🔗 配置 GitHub Token',
-      html: `
-        <div class="form-group">
-          <label>GitHub Personal Access Token</label>
-          <input type="password" id="inline-github-token" placeholder="ghp_xxxxx" class="input">
-          <span class="form-hint">用于采集邮箱，需要 repo 权限</span>
-        </div>
-        <button class="btn btn-primary" onclick="saveInlineSetup('github')">💾 保存</button>
-      `,
-    },
     smtp: {
       title: '📧 配置 SMTP 邮箱',
       html: `
@@ -523,11 +527,7 @@ async function saveInlineSetup(type) {
   const statusEl = 'inline-setup-status';
   let payload = {};
 
-  if (type === 'github') {
-    const token = document.getElementById('inline-github-token').value.trim();
-    if (!token) return showStatus(statusEl, '请填写 Token', 'error');
-    payload = { github_token: token };
-  } else if (type === 'smtp') {
+  if (type === 'smtp') {
     const user = document.getElementById('inline-smtp-user').value.trim();
     const pass = document.getElementById('inline-smtp-pass').value.trim();
     const host = document.getElementById('inline-smtp-host').value.trim();
@@ -571,10 +571,19 @@ function githubLogin() {
 
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'github-login-ok') {
-    showToast(`已登录 GitHub: ${e.data.user}`, 'success');
     checkGitHubStatus();
+    setTimeout(() => {
+      if (isAuthorized) {
+        showToast(`已登录 GitHub: ${e.data.user}`, 'success');
+        loadDashboard();
+      } else {
+        showToast('该账号无权访问本系统', 'error');
+      }
+    }, 300);
   }
 });
+
+let isAuthorized = false;
 
 async function checkGitHubStatus() {
   const result = await api('/api/auth/github/status');
@@ -583,13 +592,24 @@ async function checkGitHubStatus() {
   const area = document.getElementById('github-login-area');
   if (!area) return;
 
-  if (d.loggedIn) {
+  isAuthorized = d.loggedIn && d.authorized;
+
+  if (d.loggedIn && d.authorized) {
     area.innerHTML = `
       <div class="github-user">
         <img src="${d.avatar}" class="github-avatar" alt="${d.login}">
         <span class="github-name">${d.login}</span>
         <button class="btn btn-sm btn-secondary" onclick="githubLogout()">退出</button>
       </div>
+    `;
+  } else if (d.loggedIn && !d.authorized) {
+    area.innerHTML = `
+      <div class="github-user">
+        <img src="${d.avatar}" class="github-avatar" alt="${d.login}">
+        <span class="github-name" style="color: var(--danger)">${d.login}</span>
+        <button class="btn btn-sm btn-secondary" onclick="githubLogout()">退出</button>
+      </div>
+      <div style="font-size: 12px; color: var(--danger); margin-top: 6px;">无权访问本系统</div>
     `;
   } else {
     area.innerHTML = `
@@ -598,12 +618,43 @@ async function checkGitHubStatus() {
       </button>
     `;
   }
+
+  // 更新页面可见性
+  updatePageAuth();
 }
 
 async function githubLogout() {
   await api('/api/auth/github/logout', { method: 'POST' });
+  isAuthorized = false;
   showToast('已退出登录', 'info');
   checkGitHubStatus();
+}
+
+function updatePageAuth() {
+  // 未授权时显示遮罩提示
+  const main = document.querySelector('.main');
+  let overlay = document.getElementById('auth-overlay');
+
+  if (!isAuthorized) {
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'auth-overlay';
+      overlay.style.cssText = `
+        position: fixed; top: 0; left: 220px; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.7); z-index: 50;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; color: var(--text-muted);
+      `;
+      overlay.innerHTML = `<div style="text-align:center;">
+        <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+        <div>请使用授权的 GitHub 账号登录</div>
+      </div>`;
+    }
+    overlay.style.display = 'flex';
+    main.appendChild(overlay);
+  } else if (overlay) {
+    overlay.style.display = 'none';
+  }
 }
 
 // ============================================================

@@ -63,7 +63,7 @@
           <div class="setup-banner-items">
             <div class="setup-banner-item" id="banner-github" onclick="scrollToSetup('github')">
               <span class="setup-banner-check" id="banner-check-github">☐</span>
-              <span>🔗 GitHub Token（采集邮箱需要）</span>
+              <span>🔗 GitHub 登录（采集邮箱需要）</span>
             </div>
             <div class="setup-banner-item" id="banner-smtp" onclick="scrollToSetup('smtp')">
               <span class="setup-banner-check" id="banner-check-smtp">☐</span>
@@ -133,8 +133,8 @@
       <div id="page-collect" class="page">
         <h1>采集邮箱</h1>
         <div id="collect-setup-hint" class="feature-setup-hint" style="display: none;">
-          ⚠️ 未配置 GitHub Token，采集功能不可用。
-          <button class="btn btn-sm btn-primary" onclick="showInlineSetup('github')">去配置</button>
+          ⚠️ 未登录 GitHub，采集功能不可用。
+          <button class="btn btn-sm btn-primary" onclick="githubLogin()">去登录</button>
         </div>
         <div class="card">
           <h2>手动输入仓库</h2>

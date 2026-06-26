@@ -34,6 +34,25 @@ app.use(express.json());
 app.use(express.static(WEB_DIR));
 
 // ============================================================
+// 鉴权：仅允许指定 GitHub 用户访问
+// ============================================================
+
+const ALLOWED_GITHUB_USER = process.env.ALLOWED_GITHUB_USER || 'wu529778790';
+
+// 存储当前登录用户的 GitHub 信息
+let githubUser: { login: string; token: string; avatar: string } | null = null;
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!githubUser) {
+    return res.status(401).json({ ok: false, error: '请先登录 GitHub' });
+  }
+  if (githubUser.login !== ALLOWED_GITHUB_USER) {
+    return res.status(403).json({ ok: false, error: '无权访问' });
+  }
+  next();
+}
+
+// ============================================================
 // API: 初始化检查
 // ============================================================
 
@@ -118,21 +137,7 @@ app.get('/api/setup/status', (_req, res) => {
   });
 });
 
-app.post('/api/setup/github-token', (req, res) => {
-  try {
-    const { github_token } = req.body;
-    if (!github_token) {
-      return res.json({ ok: false, error: '请填写 GitHub Token' });
-    }
-    writeEnvFile({ GITHUB_TOKEN: github_token });
-    resetConfig();
-    res.json({ ok: true, message: 'GitHub Token 已保存' });
-  } catch (error: any) {
-    res.json({ ok: false, error: error.message });
-  }
-});
-
-app.post('/api/setup/smtp', (req, res) => {
+app.post('/api/setup/smtp', requireAuth, (req, res) => {
   try {
     const { smtp_host, smtp_port, smtp_user, smtp_pass } = req.body;
     if (!smtp_user || !smtp_pass) {
@@ -151,7 +156,7 @@ app.post('/api/setup/smtp', (req, res) => {
   }
 });
 
-app.post('/api/setup/product', (req, res) => {
+app.post('/api/setup/product', requireAuth, (req, res) => {
   try {
     const { product_name, product_desc, github_repo } = req.body;
     if (!product_name) {
@@ -173,7 +178,7 @@ app.post('/api/setup/product', (req, res) => {
 // API: 保存 .env（兼容旧接口）
 // ============================================================
 
-app.post('/api/setup/env', (req, res) => {
+app.post('/api/setup/env', requireAuth, (req, res) => {
   try {
     const {
       github_token, smtp_host, smtp_port, smtp_user, smtp_pass,
@@ -214,9 +219,6 @@ app.post('/api/setup/env', (req, res) => {
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
 const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3456/auth/github/callback';
-
-// 存储当前登录用户的 GitHub 信息
-let githubUser: { login: string; token: string; avatar: string } | null = null;
 
 app.get('/auth/github', (_req, res) => {
   if (!GITHUB_CLIENT_ID) {
@@ -261,6 +263,18 @@ app.get('/auth/github/callback', async (req, res) => {
     });
     const userData = await userRes.json() as any;
 
+    // 校验是否为授权用户
+    if (userData.login !== ALLOWED_GITHUB_USER) {
+      return res.send(`
+        <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h2>🚫 无权访问</h2>
+          <p>当前 GitHub 账号 <b>${userData.login}</b> 无权使用本系统。</p>
+          <p>仅允许 <b>${ALLOWED_GITHUB_USER}</b> 登录。</p>
+          <script>setTimeout(() => window.close(), 2000);</script>
+        </body></html>
+      `);
+    }
+
     // 保存到内存
     githubUser = {
       login: userData.login,
@@ -273,9 +287,10 @@ app.get('/auth/github/callback', async (req, res) => {
     resetConfig();
 
     // 重定向回首页
+    const safeLogin = userData.login.replace(/[^a-zA-Z0-9-]/g, '');
     res.send(`
       <html><body><script>
-        window.opener && window.opener.postMessage({ type: 'github-login-ok', user: '${userData.login}' }, '*');
+        window.opener && window.opener.postMessage({ type: 'github-login-ok', user: '${safeLogin}' }, '*');
         window.close();
         setTimeout(() => { window.location.href = '/'; }, 500);
       </script></body></html>
@@ -287,9 +302,10 @@ app.get('/auth/github/callback', async (req, res) => {
 
 app.get('/api/auth/github/status', (_req, res) => {
   if (githubUser) {
-    res.json({ ok: true, data: { loggedIn: true, login: githubUser.login, avatar: githubUser.avatar } });
+    const authorized = githubUser.login === ALLOWED_GITHUB_USER;
+    res.json({ ok: true, data: { loggedIn: true, authorized, login: githubUser.login, avatar: githubUser.avatar } });
   } else {
-    res.json({ ok: true, data: { loggedIn: false } });
+    res.json({ ok: true, data: { loggedIn: false, authorized: false } });
   }
 });
 
@@ -302,7 +318,7 @@ app.post('/api/auth/github/logout', (_req, res) => {
 // API: 获取状态
 // ============================================================
 
-app.get('/api/status', (req, res) => {
+app.get('/api/status', requireAuth, (req, res) => {
   try {
     const config = loadConfig();
     const emailCount = getEmailCount();
@@ -337,7 +353,7 @@ app.get('/api/status', (req, res) => {
 // API: 获取配置（config.yaml）
 // ============================================================
 
-app.get('/api/config', (req, res) => {
+app.get('/api/config', requireAuth, (req, res) => {
   try {
     if (existsSync(CONFIG_PATH)) {
       const raw = readFileSync(CONFIG_PATH, 'utf-8');
@@ -355,7 +371,7 @@ app.get('/api/config', (req, res) => {
 // API: 获取/保存 .env 文件
 // ============================================================
 
-app.get('/api/env', (_req, res) => {
+app.get('/api/env', requireAuth, (_req, res) => {
   try {
     if (existsSync(ENV_PATH)) {
       const raw = readFileSync(ENV_PATH, 'utf-8');
@@ -368,7 +384,7 @@ app.get('/api/env', (_req, res) => {
   }
 });
 
-app.post('/api/env', (req, res) => {
+app.post('/api/env', requireAuth, (req, res) => {
   try {
     const { content } = req.body;
     if (typeof content !== 'string') {
@@ -386,7 +402,7 @@ app.post('/api/env', (req, res) => {
 // API: 保存配置
 // ============================================================
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', requireAuth, (req, res) => {
   try {
     const config = req.body;
     const yaml = YAML.stringify(config);
@@ -402,7 +418,7 @@ app.post('/api/config', (req, res) => {
 // API: 预览邮件
 // ============================================================
 
-app.get('/api/preview', (req, res) => {
+app.get('/api/preview', requireAuth, (req, res) => {
   try {
     const count = parseInt(req.query.count as string) || 5;
     const config = loadConfig();
@@ -428,7 +444,7 @@ app.get('/api/preview', (req, res) => {
 
 let collecting = false;
 
-app.post('/api/collect', async (req, res) => {
+app.post('/api/collect', requireAuth, async (req, res) => {
   if (collecting) {
     return res.json({ ok: false, error: '采集正在进行中' });
   }
@@ -457,7 +473,7 @@ app.post('/api/collect', async (req, res) => {
 
 let sending = false;
 
-app.post('/api/send', async (req, res) => {
+app.post('/api/send', requireAuth, async (req, res) => {
   if (sending) {
     return res.json({ ok: false, error: '发送正在进行中' });
   }
@@ -483,7 +499,7 @@ app.post('/api/send', async (req, res) => {
 // API: 测试 SMTP 连接
 // ============================================================
 
-app.post('/api/test-smtp', async (req, res) => {
+app.post('/api/test-smtp', requireAuth, async (req, res) => {
   try {
     const config = loadConfig();
     const results = [];
@@ -517,7 +533,7 @@ app.post('/api/test-smtp', async (req, res) => {
 // API: 获取日志
 // ============================================================
 
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', requireAuth, (req, res) => {
   try {
     const logFile = join(__dirname, '..', 'logs', 'promoter.log');
     if (!existsSync(logFile)) {
@@ -535,7 +551,7 @@ app.get('/api/logs', (req, res) => {
 // API: 获取发送状态
 // ============================================================
 
-app.get('/api/send-status', (req, res) => {
+app.get('/api/send-status', requireAuth, (req, res) => {
   try {
     const config = loadConfig();
     const emailCount = getEmailCount();

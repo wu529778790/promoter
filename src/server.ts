@@ -4,10 +4,12 @@
  * 轻量级 Express 服务器，提供 Web UI 管理面板
  */
 
+import 'dotenv/config';
 import express from 'express';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import YAML from 'yaml';
 import { loadConfig, resetConfig } from './config.js';
 import { generateEmail, getCombinationCount } from './spintax.js';
@@ -79,6 +81,11 @@ function writeEnvFile(updates: Record<string, string>) {
   const lines = [
     `# GitHub Token`,
     `GITHUB_TOKEN=${merged.GITHUB_TOKEN || ''}`,
+    ``,
+    `# GitHub OAuth`,
+    `GITHUB_CLIENT_ID=${merged.GITHUB_CLIENT_ID || ''}`,
+    `GITHUB_CLIENT_SECRET=${merged.GITHUB_CLIENT_SECRET || ''}`,
+    `GITHUB_CALLBACK_URL=${merged.GITHUB_CALLBACK_URL || 'http://localhost:3456/auth/github/callback'}`,
     ``,
     `# SMTP 邮箱配置`,
     `SMTP_HOST=${merged.SMTP_HOST || 'smtp.qq.com'}`,
@@ -198,6 +205,97 @@ app.post('/api/setup/env', (req, res) => {
   } catch (error: any) {
     res.json({ ok: false, error: error.message });
   }
+});
+
+// ============================================================
+// GitHub OAuth 登录
+// ============================================================
+
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
+const GITHUB_CALLBACK_URL = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3456/auth/github/callback';
+
+// 存储当前登录用户的 GitHub 信息
+let githubUser: { login: string; token: string; avatar: string } | null = null;
+
+app.get('/auth/github', (_req, res) => {
+  if (!GITHUB_CLIENT_ID) {
+    return res.status(500).json({ ok: false, error: 'GitHub OAuth 未配置，请设置 GITHUB_CLIENT_ID' });
+  }
+  const state = randomBytes(16).toString('hex');
+  const url = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=repo&state=${state}`;
+  res.redirect(url);
+});
+
+app.get('/auth/github/callback', async (req, res) => {
+  const code = req.query.code as string;
+  if (!code) {
+    return res.status(400).send('缺少 code 参数');
+  }
+
+  try {
+    // 用 code 换 access_token
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+      }),
+    });
+    const tokenData = await tokenRes.json() as any;
+
+    if (tokenData.error) {
+      return res.status(400).send(`授权失败: ${tokenData.error_description}`);
+    }
+
+    const token = tokenData.access_token;
+
+    // 获取用户信息
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const userData = await userRes.json() as any;
+
+    // 保存到内存
+    githubUser = {
+      login: userData.login,
+      token,
+      avatar: userData.avatar_url,
+    };
+
+    // 保存 token 到 .env
+    writeEnvFile({ GITHUB_TOKEN: token });
+    resetConfig();
+
+    // 重定向回首页
+    res.send(`
+      <html><body><script>
+        window.opener && window.opener.postMessage({ type: 'github-login-ok', user: '${userData.login}' }, '*');
+        window.close();
+        setTimeout(() => { window.location.href = '/'; }, 500);
+      </script></body></html>
+    `);
+  } catch (error: any) {
+    res.status(500).send(`授权出错: ${error.message}`);
+  }
+});
+
+app.get('/api/auth/github/status', (_req, res) => {
+  if (githubUser) {
+    res.json({ ok: true, data: { loggedIn: true, login: githubUser.login, avatar: githubUser.avatar } });
+  } else {
+    res.json({ ok: true, data: { loggedIn: false } });
+  }
+});
+
+app.post('/api/auth/github/logout', (_req, res) => {
+  githubUser = null;
+  res.json({ ok: true });
 });
 
 // ============================================================

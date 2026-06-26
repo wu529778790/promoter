@@ -706,3 +706,41 @@ h2 {
 ::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+
+/* 侧边栏底部（GitHub 登录） */
+.sidebar-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.btn-github-login {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+}
+
+.github-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.github-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.github-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -559,9 +559,58 @@ async function saveInlineSetup(type) {
 }
 
 // ============================================================
+// GitHub 登录
+// ============================================================
+
+function githubLogin() {
+  const w = 500, h = 600;
+  const left = (screen.width - w) / 2;
+  const top = (screen.height - h) / 2;
+  window.open('/auth/github', 'github-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'github-login-ok') {
+    showToast(`已登录 GitHub: ${e.data.user}`, 'success');
+    checkGitHubStatus();
+  }
+});
+
+async function checkGitHubStatus() {
+  const result = await api('/api/auth/github/status');
+  if (!result.ok) return;
+  const d = result.data;
+  const area = document.getElementById('github-login-area');
+  if (!area) return;
+
+  if (d.loggedIn) {
+    area.innerHTML = `
+      <div class="github-user">
+        <img src="${d.avatar}" class="github-avatar" alt="${d.login}">
+        <span class="github-name">${d.login}</span>
+        <button class="btn btn-sm btn-secondary" onclick="githubLogout()">退出</button>
+      </div>
+    `;
+  } else {
+    area.innerHTML = `
+      <button class="btn btn-secondary btn-github-login" onclick="githubLogin()">
+        <span>🐙</span> GitHub 登录
+      </button>
+    `;
+  }
+}
+
+async function githubLogout() {
+  await api('/api/auth/github/logout', { method: 'POST' });
+  showToast('已退出登录', 'info');
+  checkGitHubStatus();
+}
+
+// ============================================================
 // 初始化
 // ============================================================
 
 initTheme();
 loadSetupStatus();
+checkGitHubStatus();
 loadDashboard();

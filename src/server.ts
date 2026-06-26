@@ -31,7 +31,13 @@ const PORT = parseInt(process.env.WEB_PORT || '3456', 10);
 
 // 中间件
 app.use(express.json());
-app.use(express.static(WEB_DIR));
+app.use(express.static(WEB_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  },
+}));
 
 // ============================================================
 // 鉴权：仅允许指定 GitHub 用户访问
